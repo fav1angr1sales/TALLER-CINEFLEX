@@ -1,0 +1,182 @@
+{
+  "info": {
+    "name": "CineFlex API Collection",
+    "description": "Pruebas automatizadas de la API REST de CineFlex (Login, Cartelera, Reserva).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Login (POST)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('1. Código de estado es 200 OK', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('2. La respuesta es JSON y contiene el token JWT', function () {",
+              "    pm.response.to.be.json;",
+              "    const body = pm.response.json();",
+              "    pm.expect(body).to.have.property('token');",
+              "    pm.expect(body.token).to.be.a('string').and.not.empty;",
+              "});",
+              "",
+              "pm.test('3. El token tiene formato JWT (3 segmentos) y se guarda en el entorno', function () {",
+              "    const token = pm.response.json().token;",
+              "    pm.expect(token.split('.')).to.have.lengthOf(3);",
+              "    pm.environment.set('token', token);",
+              "    pm.expect(pm.environment.get('token')).to.eql(token);",
+              "});",
+              "",
+              "pm.test('4. El usuario devuelto coincide con el email enviado', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.usuario.email).to.eql(pm.environment.get('userEmail'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "login"
+          ]
+        }
+      }
+    },
+    {
+      "name": "2. Cartelera (GET)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('1. Código de estado es 200 OK', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('2. La respuesta es un JSON válido (Content-Type)', function () {",
+              "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+              "    pm.expect(() => pm.response.json()).to.not.throw();",
+              "});",
+              "",
+              "pm.test('3. Cumple el SLA: tiempo de respuesta menor a 300ms', function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(300);",
+              "});",
+              "",
+              "pm.test('4. Devuelve un arreglo de películas con la estructura esperada', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.peliculas).to.be.an('array').that.is.not.empty;",
+              "    pm.expect(body.total).to.eql(body.peliculas.length);",
+              "    body.peliculas.forEach(function (p) {",
+              "        pm.expect(p).to.include.keys('id', 'titulo', 'genero', 'precio');",
+              "    });",
+              "});",
+              "",
+              "pm.test('5. Los encabezados de seguridad de Helmet están presentes', function () {",
+              "    pm.response.to.have.header('X-Content-Type-Options', 'nosniff');",
+              "    pm.expect(pm.response.headers.has('X-Powered-By')).to.be.false;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/cartelera",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "cartelera"
+          ]
+        }
+      }
+    },
+    {
+      "name": "3. Reserva con tarjeta falsa (POST) - prueba negativa",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('1. El backend rechaza la transacción (400 o 402)', function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([400, 402]);",
+              "});",
+              "",
+              "pm.test('2. El mensaje de error es el correcto para una tarjeta falsa', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body).to.have.property('mensaje');",
+              "    pm.expect(body.mensaje).to.eql('Tarjeta inválida');",
+              "});",
+              "",
+              "pm.test('3. El código de error de negocio es TARJETA_INVALIDA', function () {",
+              "    pm.expect(pm.response.json().codigo).to.eql('TARJETA_INVALIDA');",
+              "});",
+              "",
+              "pm.test('4. La respuesta NO contiene un ticket (no se generó la reserva)', function () {",
+              "    pm.expect(pm.response.json()).to.not.have.property('ticket');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"peliculaId\": 1,\n  \"asiento\": \"C4\",\n  \"tarjeta\": {\n    \"nombre\": \"Tarjeta Falsa\",\n    \"numero\": \"1234567890123456\",\n    \"vencimiento\": \"12/30\",\n    \"cvv\": \"123\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/reserva",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "reserva"
+          ]
+        }
+      }
+    }
+  ]
+}

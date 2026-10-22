@@ -1,0 +1,121 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Estrategia de Pruebas | CineFlex</title><style>@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap');
+:root{--primary:#d97706;--primary-dark:#b45309;--secondary:#1e293b;--bg:#f8fafc;--card:#fff;--border:#e2e8f0;--text:#334155;--muted:#64748b;--code:#0f172a;--highlight:#fef3c7}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font:15px/1.7 Inter,Arial,sans-serif;color:var(--text)}header{background:linear-gradient(135deg,var(--secondary),#0f172a);color:#fff;text-align:center;padding:48px 20px 58px;border-bottom:5px solid var(--primary)}header .eyebrow{font:600 .78rem 'Fira Code',monospace;letter-spacing:2px;text-transform:uppercase;color:#fbbf24;margin-bottom:12px}header h1{font-size:clamp(2rem,4vw,2.7rem);margin:0;letter-spacing:-1px}header p{color:#cbd5e1;margin:10px auto 0;max-width:780px}.container{max-width:1120px;margin:-28px auto 55px;padding:0 20px;position:relative}.page{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:clamp(22px,4vw,38px);margin-bottom:24px;box-shadow:0 10px 25px -5px #00000008;break-inside:avoid}.page h2{font-size:1.5rem;color:var(--secondary);border-bottom:3px solid var(--highlight);padding-bottom:10px;margin:24px 0 16px}.page h2:first-child{margin-top:0}.page h3{font:600 1.03rem 'Fira Code',monospace;color:var(--primary-dark);margin:22px 0 8px}.page p{margin:8px 0}.lead{font-size:1rem}.meta{color:var(--muted);font-size:.9rem}.callout{background:#fffbeb;border-left:5px solid var(--primary);padding:14px 17px;margin:16px 0;border-radius:0 8px 8px 0;color:#92400e}.bullet{padding-left:12px}.bullet::first-letter{color:var(--primary)}pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:auto;background:var(--code);color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:16px;font: .78rem/1.55 'Fira Code',monospace;margin:12px 0}.pagefoot{text-align:right;color:var(--muted);font-size:.75rem;border-top:1px solid var(--border);padding-top:10px;margin-top:24px}@media(max-width:700px){.container{padding:0 12px}.page{padding:20px 16px}header{padding:38px 15px 48px}}@page{size:A4;margin:13mm}@media print{body{background:white;font-size:9pt}.container{margin:0;padding:0;max-width:none}.page{box-shadow:none;border:0;border-radius:0;padding:0;margin:0 0 12mm;break-after:page}.page:last-child{break-after:auto}header{padding:22px 12px;border-bottom-width:4px}header h1{font-size:23pt}pre{font-size:7pt;break-inside:avoid}.page h2{font-size:14pt}.page h3{font-size:9.5pt}.pagefoot{font-size:7pt}}
+</style></head><body><header><div class="eyebrow">FASE A · ARQUITECTURA Y DECISIONES DE QA</div><h1>Estrategia de Pruebas</h1><p>Plataforma web de venta de boletos CineFlex</p><p>Documento original · Octubre de 2026</p></header><main class="container"><section class="page"><h2>Estrategia de Pruebas</h2><h2>Plataforma web de venta de boletos CineFlex</h2><h2>Fase A - Arquitectura y decisiones de QA</h2><p class="meta">Equipo: completar con los nombres de los integrantes | Octubre de 2026</p><p class="lead">Este documento recoge las decisiones de QA que guiaron la construcción del entorno simulado y de las</p><p>suites automatizadas del repositorio. CineFlex tiene tres capas: un frontend web, un backend REST en</p><p>Node.js/Express (autenticación con JWT, inventario de asientos y reservas) y un tercero externo, la</p><p>pasarela de pagos del banco. Cada decisión se justifica con el contexto de esta plataforma.</p><h2>1. Pruebas de integración: Top-Down con Stub de la</h2><p>pasarela</p><h3>1.1 Enfoque elegido</h3><p>Se usa integración Top-Down. El frontend de pagos y el endpoint POST /api/reserva ya están</p><p>terminados, y lo único que falta es el componente de nivel inferior (el banco). En Top-Down se prueba</p><p>primero desde las capas superiores (UI y API) y cada módulo inferior que todavía no existe se reemplaza</p><p>por un Stub. Bottom-Up no encaja aquí: exigiría empezar por el banco, que es justamente lo que no</p><p>tenemos, y necesitaría Drivers para simular a los módulos superiores que ya están construidos.</p><pre>                     Stub                                               Driver
+
+ Qué es              Reemplaza a un módulo inferior que el módulo       Reemplaza a un módulo superior que invocaría
+                     bajo prueba invoca.                                al módulo bajo prueba.
+
+ En CineFlex         Simula al banco. Lo llama el backend al procesar   No hace falta para la pasarela. Si fuera
+                     un pago.                                           necesario, sería un script que llama al endpoint
+                                                                        de reserva (lo que hace Postman).
+
+ Enfoque             Top-Down                                           Bottom-Up</pre><h3>1.2 Diseño del Stub</h3><div class="callout">Principio: el stub debe respetar el mismo contrato que tendrá el banco real (entrada, salida y códigos</div><p>HTTP), de modo que el día que haya acceso a la API real solo cambie la implementación, no el código de</p><p>CineFlex. Debe ser determinista (la misma tarjeta produce siempre el mismo resultado), no depender de</p><p>la red y cubrir tanto el camino feliz como los fallos que el banco real produciría.</p><p>Contrato simulado</p><p>Entrada (tarjeta)          Comportamiento         Respuesta a CineFlex          Resultado esperado en CineFlex</p><p>del stub</p><p>4111 1111 1111 1111        Aprueba el pago        200 - aprobado:true,          Reserva 201, asiento pasa a ocupado, se</p><pre>                                                   autorizacion                  emite ticket
+
+ 4000 0000 0000 0002        Rechaza la tarjeta     402 -                         Error al usuario, asiento sigue libre, sin
+                                                   TARJETA_RECHAZADA             ticket
+
+ 4000 0000 0000 9995        Fondos insuficientes   402 - FONDOS_INSUFICIE        Error al usuario, asiento sigue libre, sin
+                                                   NTES                          ticket
+
+ Número que no pasa         Rechaza por            400 - TARJETA_INVALIDA        Error de validación, sin ticket
+ Luhn (ej. 1234 5678        formato
+ 9012 3456)</pre><div class="pagefoot">CineFlex - Estrategia de Pruebas (Fase A)                                                                              Página 1</div></section><section class="page"><p>Entrada (tarjeta)          Comportamiento          Respuesta a CineFlex         Resultado esperado en CineFlex</p><p>del stub</p><p>CVV o vencimiento          Rechaza por             400 - CVV_INVALIDO /         Error de validación, sin ticket</p><p>con formato                formato                 VENCIMIENTO_INVALIDO</p><p>incorrecto</p><h3>Implementación (en backend/server.js, función pasarelaPagosStub). Fragmento simplificado:</h3><pre>   function pasarelaPagosStub({ número, cvv, vencimiento, monto }) {
+     const limpio = String(número).replace(/\s|-/g, &#x27;&#x27;);
+     if (!/^\d{13,19}$/.test(limpio) || !luhnValido(limpio))
+       return { status: 400, body: { aprobado: false, código: &#x27;TARJETA_INVALIDA&#x27;,
+                                     mensaje: &#x27;Tarjeta inválida&#x27; } };
+     if (limpio === &#x27;4000000000000002&#x27;)
+       return { status: 402, body: { aprobado: false, código: &#x27;TARJETA_RECHAZADA&#x27; } };
+     if (limpio === &#x27;4000000000009995&#x27;)
+       return { status: 402, body: { aprobado: false, código: &#x27;FONDOS_INSUFICIENTES&#x27; } };
+     return { status: 200, body: { aprobado: true, autorizacion: &#x27;AUT-&#x27; + Date.now(), monto } };
+   }
+
+ Cómo el stub permite probar hoy mismo que CineFlex procesa las ventas:
+
+  - El backend llama a la pasarela a traves de una sola función; es el único punto que habrá que
+    reemplazar por la llamada HTTP real al banco.
+  - La lógica propia de CineFlex (validar asiento libre, bloquearlo solo si el pago fue aprobado, generar el
+    ticket, devolver el código HTTP correcto) se ejecuta completa y es lo que se verifica.
+  - Se prueba en dos niveles: API (Postman, prueba negativa con tarjeta falsa) y UI (Selenium: tarjeta
+    rechazada TC13 y flujo E2E aprobado TC14/TC15).
+  - Regla clave verificada: un pago fallido nunca deja el asiento ocupado (TC13) y un pago exitoso
+    siempre lo ocupa (TC15).
+ Limitaciones y riesgos. El stub solo es tan fiel como el contrato que se le asigna: si el banco responde
+ distinto (por ejemplo, tiempos de espera o 3-D Secure), la integración real puede fallar. Por eso, cuando el
+ banco entregue el ambiente de pruebas, se deben ejecutar las mismas pruebas contra la API real y
+ agregar pruebas de contrato y de tiempo de espera.</pre><h2>2. Pruebas de sistema y regresión</h2><h3>2.1 Requisitos</h3><p>ID         Tipo             Requisito                        Criterio de aceptación                    Verificado por</p><p>RF-01      Funcional        El usuario autenticado debe      Al elegir un género solo se listan        UI TC08</p><pre>                             poder filtrar la cartelera por   películas de ese género; al elegir
+                             género.                          &quot;Todos&quot; se listan todas.
+
+ RF-02      Funcional        Un asiento solo puede            Asiento ocupado: 409 y no                 UI TC11, TC13,
+                             reservarse si está libre y el    seleccionable. Pago rechazado:            TC14, TC15; API
+                             pago fue aprobado; tras la       asiento libre. Pago aprobado: ticket      reserva
+                             compra queda ocupado.            emitido y asiento ocupado.
+
+ RNF-0      No funcional     La consulta de cartelera debe    Tiempo de respuesta &lt; 300 ms en           Postman (endpoint
+ 1          (rendimiento)    responder en menos de 300        cada ejecución de la colección.           2)
+                             ms.
+
+ RNF-0      No funcional     El sistema debe soportar 500     500 usuarios con ramp-up de 15 s,         JMeter
+ 2          (carga)          usuarios concurrentes en la      porcentaje de error menor a 1 %, y la
+                             noche de estreno sin degradar    consulta de asientos responde
+                             el servicio.                     correctamente.</pre><div class="pagefoot">CineFlex - Estrategia de Pruebas (Fase A)                                                                           Página 2</div></section><section class="page"><h3>2.2 Estrategia de regresión</h3><div class="callout">Respuesta directa: ante un cambio del color de un botón secundario de la vista de perfil, no se vuelve a</div><p>ejecutar toda la suite de la pasarela de pagos. Ese cambio es cosmético, está aislado en la vista de perfil</p><p>y no toca lógica de pagos, endpoints ni datos. Ejecutar toda la suite de pagos consumiría tiempo de CI sin</p><p>reducir el riesgo real.</p><h3>Criterio de selección de casos (en orden):</h3><pre>  - Análisis de impacto: qué archivos y módulos toca el cambio, y qué otros módulos dependen de ellos.
+  - Riesgo = probabilidad de falla x impacto en el negocio. Pagos y login son de impacto alto (ingresos
+    y acceso), por eso siempre están dentro del smoke; un botón de perfil es de impacto bajo.
+  - Trazabilidad: cada caso está ligado a un requisito (RF/RNF), lo que permite elegir por area
+    modificada.
+  - Costo: se prioriza lo barato y rápido (API) en cada push, y lo caro (UI, carga) en ventanas definidas.
+
+ Tipo de cambio                     Suite que se ejecuta                                                     Cuándo
+
+ Cosmético aislado (color de        Smoke (login + cartelera: TC06, TC07; colección Newman completa          Cada push
+ botón en perfil)                   por ser barata) + casos de la vista de perfil y una revisión visual de
+                                    esa pantalla.
+
+ Cambio de CSS global o de          Smoke + todos los casos de UI que usan ese componente, incluido          Pull request
+ componente compartido              el botón &quot;Pagar&quot; si lo comparte.
+
+ Cambio en validación o lógica      Suite completa de reserva y pago (API + UI TC10-TC15) + smoke.           Pull request
+ de pagos, o en el stub
+
+ Cambio en autenticación            Login y navegación segura (TC01-TC06, TC16-TC18) + API login +           Pull request
+ (JWT, bloqueo)                     smoke.
+
+ Preparación del estreno            Regresión completa (API + 18 casos UI) + prueba de carga JMeter.         Antes de
+ (release)                                                                                                   publicar
+
+ Salvedad: si el desarrollador reutilizo una clase CSS compartida (por ejemplo la del botón &quot;Pagar&quot;), el
+ cambio deja de ser aislado y se pasa a la fila 2 de la tabla. La decisión se revisa con el análisis de
+ impacto, no solo con la descripción del cambio.</pre><h2>3. Comparativa de herramientas: Selenium WebDriver vs</h2><p>Cypress</p><p>Criterio                 Selenium WebDriver                                Cypress</p><p>Arquitectura             Controla el navegador desde fuera mediante el     Se ejecuta dentro del navegador, junto a la</p><pre>                          protocolo WebDriver.                              aplicación.
+
+ Navegadores              Chrome, Firefox, Edge, Safari y navegadores       Chrome, Edge y Firefox; soporte de WebKit en
+                          de dispositivos reales / grids en la nube.        modo experimental.
+
+ Lenguajes                Java, Python, JavaScript, C#, entre otros (útil   JavaScript / TypeScript.
+                          para equipos de QA mixtos).
+
+ Varias pestañas o        Soportado (cambio de ventana y de iframe).        No soporta múltiples pestañas; limitaciones con
+ ventanas                                                                   varios dominios.
+
+ Esperas                  Explícitas (until); hay que programarlas.         Reintentos automáticos integrados.
+
+ Simular red o            Requiere herramientas adicionales (proxy o        Nativo con cy.intercept(): permite simular
+ servicios externos       mock).                                            respuestas del banco.</pre><div class="pagefoot">CineFlex - Estrategia de Pruebas (Fase A)                                                                               Página 3</div></section><section class="page"><p>Criterio                 Selenium WebDriver                               Cypress</p><p>Feedback y               Más lento de configurar; depuración con logs y   Rápido; ejecutor interactivo con historial de</p><p>depuración               capturas.                                        cada paso.</p><pre>                  Escenario de CineFlex recomendado                    Justificación
+
+ Selenium         Certificación del flujo de compra antes del          El público del estreno usa navegadores y
+                  estreno, en varios navegadores y dispositivos        dispositivos muy variados; Selenium cubre todos,
+                  (Chrome, Firefox, Safari en iPhone), incluyendo un   maneja múltiples ventanas y se integra con Grid.
+                  eventual redireccionamiento al sitio del banco en    Además, el equipo de QA puede escribirlo en el
+                  otra ventana (3-D Secure).                           lenguaje que domine.
+
+ Cypress          Pruebas rapidas de la interfaz de pagos en           Como el frontend está en JavaScript, el equipo lo
+                  cada push del equipo de frontend, simulando          adopta fácilmente; el feedback es muy rápido, y
+                  con cy.intercept() las respuestas del banco          simular la pasarela a nivel de red es justo el
+                  (aprobado, 402, tiempo de espera) sin levantar       problema de este proyecto.
+                  backend.
+
+ Decisión para este proyecto: la automatización de UI se implemento con Selenium WebDriver + Page
+ Object Model (pedido en el taller), porque el objetivo es certificar el flujo completo antes del estreno.
+ Como mejora futura se recomienda sumar Cypress en el pipeline para dar feedback rápido a los
+ desarrolladores.</pre><div class="pagefoot">CineFlex - Estrategia de Pruebas (Fase A)                                                                            Página 4</div></section></main></body></html>

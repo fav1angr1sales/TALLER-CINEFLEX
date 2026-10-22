@@ -1,0 +1,6 @@
+node_modules/
+*.log
+newman-report.xml
+performance/resultados.jtl
+performance/reporte/
+.DS_Store

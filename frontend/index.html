@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CineFlex</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="logo">CINE<span>FLEX</span></div>
+    <div id="user-box" class="user-box hidden">
+      <span id="user-name"></span>
+      <button id="btn-logout" class="btn btn-secundario" type="button">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- LOGIN -->
+    <section id="login-view" class="panel login-panel hidden">
+      <h2 id="login-title">Iniciar sesión</h2>
+      <form id="login-form" novalidate>
+        <label for="email">Correo electrónico</label>
+        <input id="email" name="email" type="email" autocomplete="off">
+        <label for="password">Contraseña</label>
+        <input id="password" name="password" type="password" autocomplete="off">
+        <button id="btn-login" class="btn btn-block" type="submit">Ingresar</button>
+      </form>
+      <div id="login-message" class="mensaje hidden" role="alert"></div>
+    </section>
+
+    <!-- CARTELERA -->
+    <section id="cartelera-view" class="hidden">
+      <div class="toolbar">
+        <h1 id="cartelera-title">Cartelera</h1>
+        <select id="genre-filter" aria-label="Filtrar por género">
+          <option value="">Todos los géneros</option>
+          <option value="Acción">Acción</option>
+          <option value="Ciencia ficción">Ciencia ficción</option>
+          <option value="Comedia">Comedia</option>
+          <option value="Drama">Drama</option>
+        </select>
+      </div>
+      <div id="movies-list" class="movies"></div>
+    </section>
+
+    <!-- RESERVA -->
+    <section id="reserva-view" class="panel hidden">
+      <h2 id="reserva-title"></h2>
+      <div class="screen">PANTALLA</div>
+      <div id="seat-map" class="seat-map"></div>
+      <div class="legend">
+        <span>⬛ Libre</span><span>🟥 Ocupado</span><span>🟨 Seleccionado</span>
+      </div>
+      <p>Asiento seleccionado: <strong id="selected-seat">Ninguno</strong></p>
+
+      <form id="payment-form" novalidate>
+        <div class="form-grid">
+          <div class="full">
+            <label for="card-name">Nombre en la tarjeta</label>
+            <input id="card-name" type="text" autocomplete="off">
+          </div>
+          <div class="full">
+            <label for="card-number">Número de tarjeta</label>
+            <input id="card-number" type="text" inputmode="numeric" autocomplete="off" placeholder="4111 1111 1111 1111">
+          </div>
+          <div>
+            <label for="card-expiry">Vencimiento (MM/AA)</label>
+            <input id="card-expiry" type="text" autocomplete="off" placeholder="12/30">
+          </div>
+          <div>
+            <label for="card-cvv">CVV</label>
+            <input id="card-cvv" type="text" inputmode="numeric" autocomplete="off" placeholder="123">
+          </div>
+        </div>
+        <div style="margin-top:22px; display:flex; gap:12px;">
+          <button id="btn-pagar" class="btn" type="submit">Pagar</button>
+          <button id="btn-volver" class="btn btn-secundario" type="button">Volver a cartelera</button>
+        </div>
+      </form>
+      <div id="payment-error" class="mensaje error hidden" role="alert"></div>
+    </section>
+
+    <!-- TICKET -->
+    <section id="ticket-view" class="hidden">
+      <h1 id="ticket-title" style="text-align:center">¡Compra exitosa!</h1>
+      <div class="ticket">
+        <div>TICKET VIRTUAL</div>
+        <div id="ticket-code" class="codigo"></div>
+        <dl>
+          <dt>Película</dt><dd id="ticket-movie"></dd>
+          <dt>Asiento</dt><dd id="ticket-seat"></dd>
+          <dt>Total pagado</dt><dd id="ticket-amount"></dd>
+        </dl>
+        <button id="btn-volver-cartelera" class="btn" type="button">Volver a cartelera</button>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    (function () {
+      var COLORES = {
+        1: 'linear-gradient(135deg,#312e81,#6d28d9)',
+        2: 'linear-gradient(135deg,#7f1d1d,#ea580c)',
+        3: 'linear-gradient(135deg,#065f46,#84cc16)',
+        4: 'linear-gradient(135deg,#1e3a8a,#0ea5e9)'
+      };
+      var FILAS = ['A', 'B', 'C', 'D'];
+      var state = { pelicula: null, asiento: null };
+
+      function $(id) { return document.getElementById(id); }
+      function token() { try { return sessionStorage.getItem('token'); } catch (e) { return null; } }
+      function show(id) {
+        ['login-view', 'cartelera-view', 'reserva-view', 'ticket-view'].forEach(function (v) {
+          $(v).classList.toggle('hidden', v !== id);
+        });
+      }
+      function msg(el, texto, tipo) {
+        el.textContent = texto;
+        el.className = 'mensaje ' + (tipo || 'error');
+      }
+      function clearMsg(el) { el.textContent = ''; el.className = 'mensaje hidden'; }
+
+      function api(ruta, opciones) {
+        opciones = opciones || {};
+        opciones.headers = Object.assign({ 'Content-Type': 'application/json' }, opciones.headers || {});
+        if (token()) opciones.headers.Authorization = 'Bearer ' + token();
+        return fetch(ruta, opciones).then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (data) {
+            return { status: r.status, data: data };
+          });
+        });
+      }
+
+      // ---------- Router por hash con guardia de sesión ----------
+      function route() {
+        var hash = location.hash || '#/login';
+        var protegida = hash !== '#/login';
+        if (protegida && !token()) {
+          location.replace('#/login');
+          return;
+        }
+        if (hash === '#/login' && token()) {
+          location.replace('#/cartelera');
+          return;
+        }
+        $('user-box').classList.toggle('hidden', !token());
+        if (hash === '#/login') { show('login-view'); }
+        else if (hash === '#/cartelera') { show('cartelera-view'); cargarCartelera(); }
+        else if (hash === '#/reserva' && state.pelicula) { show('reserva-view'); cargarAsientos(); }
+        else if (hash === '#/ticket') { show('ticket-view'); }
+        else { location.replace('#/cartelera'); }
+      }
+      window.addEventListener('hashchange', route);
+
+      // ---------- Login ----------
+      $('login-form').addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var email = $('email').value.trim();
+        var password = $('password').value;
+        var out = $('login-message');
+        if (!email || !password) {
+          msg(out, 'Email y contraseña son obligatorios');
+          return;
+        }
+        api('/api/login', { method: 'POST', body: JSON.stringify({ email: email, password: password }) })
+          .then(function (r) {
+            if (r.status === 200) {
+              sessionStorage.setItem('token', r.data.token);
+              $('user-name').textContent = r.data.usuario.nombre;
+              clearMsg(out);
+              $('password').value = '';
+              location.hash = '#/cartelera';
+            } else if (r.status === 423) {
+              msg(out, 'Cuenta bloqueada: demasiados intentos fallidos', 'bloqueo');
+              $('btn-login').disabled = true;
+            } else {
+              msg(out, (r.data.mensaje || 'Error') + '. Intentos restantes: ' + r.data.intentosRestantes);
+            }
+          });
+      });
+
+      // ---------- Cartelera ----------
+      function cargarCartelera() {
+        var genero = $('genre-filter').value;
+        api('/api/cartelera' + (genero ? '?genero=' + encodeURIComponent(genero) : '')).then(function (r) {
+          if (r.status === 401) { cerrarSesionLocal(); return; }
+          var cont = $('movies-list');
+          cont.innerHTML = '';
+          r.data.peliculas.forEach(function (p) {
+            var card = document.createElement('article');
+            card.className = 'movie-card';
+            card.setAttribute('data-movie-id', p.id);
+            card.id = 'movie-' + p.id;
+            card.innerHTML =
+              '<div class="movie-poster" style="background:' + COLORES[p.id] + '">' + p.genero + '</div>' +
+              '<div class="movie-body"><h3 class="movie-title">' + p.titulo + '</h3>' +
+              '<div class="movie-meta">' + p.duracion + ' min · $' + p.precio.toLocaleString('es-CO') + '</div>' +
+              '<button class="btn btn-comprar" id="btn-comprar-' + p.id + '" type="button">Comprar</button></div>';
+            card.querySelector('button').addEventListener('click', function () {
+              state.pelicula = p; state.asiento = null;
+              location.hash = '#/reserva';
+            });
+            cont.appendChild(card);
+          });
+        });
+      }
+      $('genre-filter').addEventListener('change', cargarCartelera);
+
+      // ---------- Reserva ----------
+      function cargarAsientos() {
+        $('reserva-title').textContent = state.pelicula.titulo;
+        $('selected-seat').textContent = state.asiento || 'Ninguno';
+        clearMsg($('payment-error'));
+        api('/api/asientos/' + state.pelicula.id).then(function (r) {
+          if (r.status === 401) { cerrarSesionLocal(); return; }
+          var mapa = $('seat-map');
+          mapa.innerHTML = '';
+          r.data.asientos.forEach(function (a) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.id = 'seat-' + a.codigo;
+            b.className = 'seat ' + a.estado;
+            b.setAttribute('data-seat', a.codigo);
+            b.textContent = a.codigo;
+            if (a.estado === 'ocupado') b.disabled = true;
+            if (state.asiento === a.codigo) b.classList.add('seleccionado');
+            b.addEventListener('click', function () {
+              if (a.estado === 'ocupado') return;
+              state.asiento = a.codigo;
+              Array.prototype.forEach.call(mapa.children, function (s) { s.classList.remove('seleccionado'); });
+              b.classList.add('seleccionado');
+              $('selected-seat').textContent = a.codigo;
+            });
+            mapa.appendChild(b);
+          });
+        });
+      }
+
+      $('payment-form').addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var err = $('payment-error');
+        if (!state.asiento) { msg(err, 'Selecciona un asiento'); return; }
+        var tarjeta = {
+          nombre: $('card-name').value.trim(),
+          numero: $('card-number').value.trim(),
+          vencimiento: $('card-expiry').value.trim(),
+          cvv: $('card-cvv').value.trim()
+        };
+        if (!tarjeta.nombre || !tarjeta.numero || !tarjeta.vencimiento || !tarjeta.cvv) {
+          msg(err, 'Completa todos los datos de pago');
+          return;
+        }
+        api('/api/reserva', {
+          method: 'POST',
+          body: JSON.stringify({ peliculaId: state.pelicula.id, asiento: state.asiento, tarjeta: tarjeta })
+        }).then(function (r) {
+          if (r.status === 201) {
+            var t = r.data.ticket;
+            $('ticket-code').textContent = t.codigo;
+            $('ticket-movie').textContent = t.pelicula;
+            $('ticket-seat').textContent = t.asiento;
+            $('ticket-amount').textContent = '$' + t.monto.toLocaleString('es-CO');
+            $('payment-form').reset();
+            location.hash = '#/ticket';
+          } else if (r.status === 401) {
+            cerrarSesionLocal();
+          } else {
+            msg(err, r.data.mensaje || 'No fue posible procesar el pago');
+          }
+        });
+      });
+      $('btn-volver').addEventListener('click', function () { location.hash = '#/cartelera'; });
+      $('btn-volver-cartelera').addEventListener('click', function () { location.hash = '#/cartelera'; });
+
+      // ---------- Logout ----------
+      function cerrarSesionLocal() {
+        sessionStorage.removeItem('token');
+        state = { pelicula: null, asiento: null };
+        $('btn-login').disabled = false;
+        // Se agrega una entrada al historial (no replace) para que el botón "Atrás"
+        // regrese a una ruta protegida y la guardia de sesión la bloquee.
+        location.hash = '#/login';
+        route();
+      }
+      $('btn-logout').addEventListener('click', function () {
+        api('/api/logout', { method: 'POST' }).then(cerrarSesionLocal, cerrarSesionLocal);
+      });
+
+      // Nombre de usuario al recargar la página con sesión activa
+      try {
+        var t = token();
+        if (t) {
+          var payload = JSON.parse(atob(t.split('.')[1]));
+          $('user-name').textContent = payload.nombre || '';
+        }
+      } catch (e) { /* token ilegible */ }
+
+      if (!location.hash) location.replace('#/login');
+      route();
+    })();
+  </script>
+</body>
+</html>

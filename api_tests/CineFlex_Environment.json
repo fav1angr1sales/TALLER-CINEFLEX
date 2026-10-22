@@ -1,0 +1,31 @@
+{
+  "id": "cineflex-env-0001",
+  "name": "CineFlex Local",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "userEmail",
+      "value": "test@cineflex.com",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "userPassword",
+      "value": "Cine1234",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}

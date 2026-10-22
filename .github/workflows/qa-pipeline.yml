@@ -1,0 +1,92 @@
+name: QA Pipeline CineFlex
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  api-tests:
+    name: API Tests (Postman / Newman)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependencias del backend
+        working-directory: backend
+        run: npm ci
+
+      - name: Levantar el backend mock en segundo plano
+        working-directory: backend
+        run: |
+          nohup npm start > ../backend.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health > /dev/null; then
+              echo "Backend listo"; exit 0
+            fi
+            sleep 1
+          done
+          echo "El backend no arrancó a tiempo"; cat ../backend.log; exit 1
+
+      - name: Ejecutar la colección de Postman con Newman
+        # Newman devuelve código de salida distinto de 0 si falla alguna aserción,
+        # lo que marca el job como fallido y bloquea la integración.
+        run: |
+          npx --yes newman run api_tests/CineFlex_API_Collection.json \
+            -e api_tests/CineFlex_Environment.json \
+            --reporters cli,junit \
+            --reporter-junit-export newman-report.xml
+
+      - name: Publicar el reporte de Newman
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newman-report
+          path: newman-report.xml
+
+      - name: Mostrar log del backend si hubo fallos
+        if: failure()
+        run: cat backend.log
+
+  ui-tests:
+    name: UI Tests (Selenium + POM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependencias del backend
+        working-directory: backend
+        run: npm ci
+
+      - name: Instalar dependencias de las pruebas UI
+        working-directory: ui_tests
+        run: npm ci
+
+      - name: Levantar backend + frontend
+        working-directory: backend
+        run: |
+          nohup npm start > ../backend.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health > /dev/null; then
+              echo "Backend listo"; exit 0
+            fi
+            sleep 1
+          done
+          cat ../backend.log; exit 1
+
+      - name: Ejecutar suite de Selenium (Chrome headless)
+        working-directory: ui_tests
+        run: npm test
